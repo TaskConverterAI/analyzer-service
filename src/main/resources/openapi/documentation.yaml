@@ -1,0 +1,169 @@
+openapi: "3.0.3"
+info:
+  title: "Analyzer Service API"
+  description: "Сервис асинхронного анализа аудио и текстовых задач. /audio выполняет только транскрибацию и возвращает реплики спикеров (одноразовая выдача — результат удаляется после получения). /task выполняет семантический анализ и формирует саммари и задачи (JSON)."
+  version: "1.0.2"
+servers:
+  - url: "http://0.0.0.0:8080"
+paths:
+  /:
+    get:
+      summary: "Проверка работы"
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema: { type: string }
+              examples: { rootExample: { value: "OK" } }
+  /audio:
+    post:
+      summary: "Асинхронная транскрибация аудио"
+      description: "Принимает бинарный аудио файл до 500MB. Выполняет ТОЛЬКО транскрибацию (без саммари). Результат (список реплик) можно получить через /jobs/{jobId}/result ОДИН раз — после выдачи данные удаляются."
+      parameters:
+        - in: query
+          name: userID
+          required: true
+          schema: { type: string }
+          description: "Идентификатор пользователя"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+            examples:
+              curlExample:
+                summary: "Пример отправки файла"
+                description: "Отправка mp3 файла"
+                value: { }
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: "Идентификатор созданной задачи транскрибации"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobCreated' }
+        "400": { description: "Ошибка валидации / превышен размер" }
+      x-codeSamples:
+        - lang: Bash
+          label: curl
+          source: |
+            curl -X POST "http://localhost:8080/audio?userID=user123" \
+                 -H "Content-Type: multipart/form-data" \
+                 -F "file=@sample.mp3" \
+                 -v
+        - lang: Python
+          label: python-requests
+          source: |
+            import requests
+            with open("sample.mp3", "rb") as f:
+                r = requests.post(
+                    "http://localhost:8080/audio",
+                    params={"userID": "user123"},
+                    files={"file": ("sample.mp3", f, "audio/mp3")}
+                )
+                print(r.json())
+  /task:
+    post:
+      summary: "Асинхронный анализ текстового описания"
+      description: "Принимает произвольный текст. Выполняет анализ и формирует MeetingSummary (саммари + задачи)."
+      parameters:
+        - in: query
+          name: userID
+          required: true
+          schema: { type: string }
+          description: "Идентификатор пользователя"
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema: { type: string }
+      responses:
+        "200":
+          description: "Идентификатор созданной задачи анализа"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobCreated' }
+        "400": { description: "Ошибка валидации входных данных" }
+  /jobs/{jobId}:
+    get:
+      summary: "Получение статуса задачи"
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Текущий статус"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalysisJob' }
+        "404": { description: "Не найдено" }
+  /jobs/{jobId}/result:
+    get:
+      summary: "Получение результата задачи"
+      description: "Для AUDIO: массив реплик (одноразовая выдача, после ответа транскрипт удаляется). Для TASK: MeetingSummary."
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Результат транскрибирования или анализа"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items: { $ref: '#/components/schemas/PublicSpeakerUtterance' }
+                    description: "Список реплик (для AUDIO)"
+                  - $ref: '#/components/schemas/MeetingSummary'
+        "404": { description: "Результат не найден" }
+        "409": { description: "Задача ещё не завершена" }
+components:
+  schemas:
+    JobCreated:
+      type: object
+      properties:
+        jobId: { type: string }
+      required: [jobId]
+    AnalysisJob:
+      type: object
+      properties:
+        jobId: { type: string }
+        status: { type: string, enum: [PENDING, RUNNING, SUCCEEDED, FAILED] }
+        submitterUserId: { type: string }
+        type: { type: string, enum: [AUDIO, TASK] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        errorMessage: { type: string, nullable: true }
+      required: [jobId, status, submitterUserId, type, createdAt, updatedAt]
+    PublicSpeakerUtterance:
+      type: object
+      properties:
+        speaker: { type: string, nullable: true }
+        text: { type: string }
+      required: [text]
+    TaskItem:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        assignee: { type: string, nullable: true }
+      required: [title, description]
+    MeetingSummary:
+      type: object
+      properties:
+        summary: { type: string }
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/TaskItem' }
+      required: [summary, tasks]
