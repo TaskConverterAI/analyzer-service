@@ -7,18 +7,16 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.logging.*
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
 import io.ktor.http.*
-import io.ktor.http.content.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.client.plugins.*
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.File
+import org.slf4j.LoggerFactory
 
 interface AiClient {
-    suspend fun transcribeAudio(audioBytes: ByteArray): List<SpeakerUtterance>
+    suspend fun transcribeAudio(audioFilePath: String): List<SpeakerUtterance>
     suspend fun analyzeText(text: String): MeetingSummary
 }
 
@@ -42,6 +40,7 @@ data class ExternalAnalysisTask(
 )
 
 class HttpAiClient(baseUrl: String, timeoutMs: Long): AiClient {
+    private val log = LoggerFactory.getLogger("ai-client")
     private val jsonCfg = Json { ignoreUnknownKeys = true }
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) { json(jsonCfg) }
@@ -60,39 +59,48 @@ class HttpAiClient(baseUrl: String, timeoutMs: Long): AiClient {
         var lastErr: Throwable? = null
         while (attempt < maxRetries) {
             try {
-                return block()
+                if (attempt > 0) log.warn("Retry attempt=$attempt")
+                return block().also { log.debug("Успешный ответ после attempt=$attempt") }
             } catch (e: HttpRequestTimeoutException) {
+                log.error("Timeout attempt=$attempt: ${e.message}")
                 lastErr = e
             } catch (e: Exception) {
-                // если не таймаут — пробуем 1 дополнительный ретрай и выходим
+                log.error("Ошибка attempt=$attempt: ${e.message}")
                 lastErr = e
                 if (e !is java.io.IOException) break
             }
             attempt++
             val delayMs = baseDelayMs * (1 shl (attempt - 1)).coerceAtMost(8)
+            log.info("Задержка перед повтором ${delayMs}ms")
             kotlinx.coroutines.delay(delayMs)
         }
         throw lastErr ?: IllegalStateException("Unknown error in withRetry")
     }
 
-    override suspend fun transcribeAudio(audioBytes: ByteArray): List<SpeakerUtterance> = withRetry {
-        val response: ExternalTranscriptionResponse = client.submitFormWithBinaryData(
-            url = transcribeUrl,
-            formData = formData {
-                append("file", audioBytes, Headers.build {
-                        append(HttpHeaders.ContentType, "audio/mp3")
-                    append(HttpHeaders.ContentDisposition, "form-data; name=\"file\"; filename=\"audio.mp3\"")
-                })
-            }
-        ).body()
+    override suspend fun transcribeAudio(audioFilePath: String): List<SpeakerUtterance> = withRetry {
+        val started = System.currentTimeMillis()
+        val file = File(audioFilePath)
+        require(file.exists()) { "Audio file not found: $audioFilePath" }
+        log.info("Запрос транскрибации file=${file.absolutePath} size=${file.length()} bytes")
+        val response: ExternalTranscriptionResponse = client.post(transcribeUrl) {
+            contentType(ContentType.Application.Json)
+            setBody(mapOf("file_path" to file.absolutePath))
+        }.body()
+        val duration = System.currentTimeMillis() - started
+        log.info("Ответ транскрибации получен segments=${response.segments.size} durationMs=$duration")
+        kotlin.runCatching { file.delete() }.onFailure { log.warn("Не удалось удалить файл ${file.absolutePath}: ${it.message}") }
         response.segments.map { SpeakerUtterance(it.speaker, it.text, it.start, it.end) }
     }
 
     override suspend fun analyzeText(text: String): MeetingSummary = withRetry {
+        val started = System.currentTimeMillis()
+        log.info("Запрос анализа текста length=${text.length}")
         val resp: ExternalAnalysisTask = client.post(analyzeUrl) {
             contentType(ContentType.Application.Json)
             setBody(mapOf("text" to text))
         }.body()
+        val duration = System.currentTimeMillis() - started
+        log.info("Ответ анализа получен tasks=${resp.tasks.size} durationMs=$duration")
         MeetingSummary(resp.summary, resp.tasks)
     }
 }
