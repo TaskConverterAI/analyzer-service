@@ -91,6 +91,24 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/JobCreated' }
         "400": { description: "Ошибка валидации входных данных" }
+  /jobs:
+    get:
+      summary: "Список задач"
+      description: "Возвращает список задач (jobs). Можно фильтровать по userID."
+      parameters:
+        - in: query
+          name: userID
+          required: false
+          schema: { type: string }
+          description: "Если указан — возвращаются только задачи этого пользователя"
+      responses:
+        "200":
+          description: "Массив задач"
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AnalysisJob' }
   /jobs/{jobId}:
     get:
       summary: "Получение статуса задачи"

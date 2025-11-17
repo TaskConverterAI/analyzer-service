@@ -172,6 +172,11 @@ fun Application.configureRouting() {
             AnalysisProcessor.processTaskDescription(job, userId, description)
             call.respond(mapOf("jobId" to job.jobId))
         }
+        get("/jobs") {
+            val userId = call.request.queryParameters["userID"]
+            val jobs = JobRepository.list(userId)
+            call.respond(jobs)
+        }
         get("/jobs/{jobId}") {
             val jobId = call.parameters["jobId"] ?: return@get call.respond(HttpStatusCode.BadRequest, "jobId missing")
             val job = JobRepository.get(jobId) ?: return@get call.respond(HttpStatusCode.NotFound, "Not found")
@@ -187,7 +192,6 @@ fun Application.configureRouting() {
                         HttpStatusCode.NotFound,
                         "Result not found"
                     )
-                    deleteTranscription(jobId)
                     val public = utt.map { PublicSpeakerUtterance(it.speaker, it.text) }
                     call.respond(public)
                 }

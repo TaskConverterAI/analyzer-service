@@ -76,4 +76,25 @@ object JobRepository {
             )
         }
     }
+
+    /**
+     * Возвращает список задач (jobs).
+     * @param userIdFilter если указан, возвращаются только задачи конкретного пользователя.
+     * @return Список [AnalysisJob] отсортированный по времени создания (по убыванию).
+     */
+    suspend fun list(userIdFilter: String? = null): List<AnalysisJob> = dbJob {
+        val base = Jobs.selectAll()
+        val filtered = if (userIdFilter != null) base.where { Jobs.userId eq userIdFilter } else base
+        filtered.orderBy(Jobs.createdAt, SortOrder.DESC).map { row ->
+            AnalysisJob(
+                jobId = row[Jobs.jobId],
+                submitterUserId = row[Jobs.userId],
+                type = row[Jobs.type],
+                status = row[Jobs.status],
+                createdAt = row[Jobs.createdAt],
+                updatedAt = row[Jobs.updatedAt],
+                errorMessage = row[Jobs.errorMessage]
+            )
+        }
+    }
 }
