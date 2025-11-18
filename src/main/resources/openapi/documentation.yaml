@@ -231,4 +231,3 @@ components:
         group: { type: string, nullable: true }
         data: { type: string, nullable: true }
       required: [summary, tasks]
-      required: [summary, tasks]
