@@ -44,13 +44,31 @@ suspend fun persistAnalysis(jobId: String, userId: String, meetingSummary: Meeti
     }
 }
 
-suspend fun loadAnalysis(jobId: String): Pair<MeetingSummary?, String?> = dbQuery {
-    val row = Analyses.selectAll().where { Analyses.jobId eq jobId }.singleOrNull()
-    if (row == null) return@dbQuery Pair(null, null)
-    val summary = row[Analyses.summary]
-    val tasksJson = row[Analyses.tasks]
+suspend fun loadAnalysis(jobId: String): Pair<TaskAnalysisResult?, String?> = dbQuery {
+    val analysisRow = Analyses.selectAll().where { Analyses.jobId eq jobId }.singleOrNull()
+    if (analysisRow == null) return@dbQuery Pair(null, null)
+
+    // Загружаем данные из джобы для получения дополнительных полей
+    val jobRow = Jobs.selectAll().where { Jobs.jobId eq jobId }.singleOrNull()
+
+    val summary = analysisRow[Analyses.summary]
+    val tasksJson = analysisRow[Analyses.tasks]
     val tasks = runCatching { serializationJson.decodeFromString<List<TaskItem>>(tasksJson) }.getOrDefault(emptyList())
-    Pair(MeetingSummary(summary, tasks), row[Analyses.userId])
+
+    val geo = if (jobRow != null && jobRow[Jobs.geoLatitude] != null && jobRow[Jobs.geoLongitude] != null) {
+        GeoLocation(jobRow[Jobs.geoLatitude]!!, jobRow[Jobs.geoLongitude]!!)
+    } else null
+
+    val result = TaskAnalysisResult(
+        summary = summary,
+        tasks = tasks,
+        geo = geo,
+        name = jobRow?.get(Jobs.name),
+        group = jobRow?.get(Jobs.group),
+        data = jobRow?.get(Jobs.data)
+    )
+
+    Pair(result, analysisRow[Analyses.userId])
 }
 
 suspend fun loadTranscriptionUtterances(jobId: String): List<SpeakerUtterance>? = dbQuery {

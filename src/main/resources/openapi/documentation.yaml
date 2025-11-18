@@ -72,7 +72,7 @@ paths:
   /task:
     post:
       summary: "Асинхронный анализ текстового описания"
-      description: "Принимает произвольный текст. Выполняет анализ и формирует MeetingSummary (саммари + задачи)."
+      description: "Принимает JSON с описанием задачи и дополнительными полями (геолокация, имя, группа, данные). Выполняет анализ и формирует TaskAnalysisResult (саммари + задачи + мета-информация)."
       parameters:
         - in: query
           name: userID
@@ -82,8 +82,23 @@ paths:
       requestBody:
         required: true
         content:
-          text/plain:
-            schema: { type: string }
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskRequest' }
+            examples:
+              fullExample:
+                summary: "Полный запрос с всеми полями"
+                value:
+                  description: "Нужно провести встречу с командой разработки по новому проекту"
+                  geo:
+                    latitude: 55.7558
+                    longitude: 37.6176
+                  name: "Встреча команды разработки"
+                  group: "dev-team"
+                  data: "priority: high, participants: 5"
+              minimalExample:
+                summary: "Минимальный запрос"
+                value:
+                  description: "Простая задача без дополнительных полей"
       responses:
         "200":
           description: "Идентификатор созданной задачи анализа"
@@ -163,6 +178,11 @@ components:
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         errorMessage: { type: string, nullable: true }
+        geoLatitude: { type: number, format: double, nullable: true }
+        geoLongitude: { type: number, format: double, nullable: true }
+        name: { type: string, nullable: true }
+        group: { type: string, nullable: true }
+        data: { type: string, nullable: true }
       required: [jobId, status, submitterUserId, type, createdAt, updatedAt]
     PublicSpeakerUtterance:
       type: object
@@ -184,4 +204,31 @@ components:
         tasks:
           type: array
           items: { $ref: '#/components/schemas/TaskItem' }
+    GeoLocation:
+      type: object
+      properties:
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+      required: [latitude, longitude]
+    TaskRequest:
+      type: object
+      properties:
+        description: { type: string }
+        geo: { $ref: '#/components/schemas/GeoLocation', nullable: true }
+        name: { type: string, nullable: true }
+        group: { type: string, nullable: true }
+        data: { type: string, nullable: true }
+      required: [description]
+    TaskAnalysisResult:
+      type: object
+      properties:
+        summary: { type: string }
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/TaskItem' }
+        geo: { $ref: '#/components/schemas/GeoLocation', nullable: true }
+        name: { type: string, nullable: true }
+        group: { type: string, nullable: true }
+        data: { type: string, nullable: true }
+      required: [summary, tasks]
       required: [summary, tasks]

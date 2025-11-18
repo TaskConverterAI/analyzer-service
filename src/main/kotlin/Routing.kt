@@ -167,9 +167,24 @@ fun Application.configureRouting() {
 
         post("/task") {
             val userId = call.request.queryParameters["userID"] ?: return@post call.respond(HttpStatusCode.BadRequest,"userID missing")
-            val description = call.receiveText()
-            val job = JobRepository.create(userId, JobType.TASK)
-            AnalysisProcessor.processTaskDescription(job, userId, description)
+
+            val taskRequest = try {
+                call.receive<TaskRequest>()
+            } catch (e: Exception) {
+                return@post call.respond(HttpStatusCode.BadRequest, "Invalid JSON format")
+            }
+
+            val job = JobRepository.create(
+                userId = userId,
+                type = JobType.TASK,
+                geoLatitude = taskRequest.geo?.latitude,
+                geoLongitude = taskRequest.geo?.longitude,
+                name = taskRequest.name,
+                group = taskRequest.group,
+                data = taskRequest.data
+            )
+
+            AnalysisProcessor.processTaskDescription(job, userId, taskRequest.description)
             call.respond(mapOf("jobId" to job.jobId))
         }
         get("/jobs") {
