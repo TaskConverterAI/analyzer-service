@@ -11,3 +11,6 @@ postgres:
 ai:
   baseUrl: "http://localhost:8000"
   requestTimeoutMs: 1500000 # 25 минут
+cleanup:
+  jobMaxAgeHours: 24 # Удалять задачи старше 24 часов
+  cleanupIntervalHours: 6 # Запускать очистку каждые 6 часов

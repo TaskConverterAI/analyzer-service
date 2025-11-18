@@ -1,9 +1,14 @@
 package com.taskconvertai
 
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import java.time.Instant
 import java.util.UUID
 
@@ -107,13 +112,15 @@ object JobRepository {
 
     /**
      * Возвращает список задач (jobs).
+     * Failed задачи удаляются после того, как были возвращены пользователю.
      * @param userIdFilter если указан, возвращаются только задачи конкретного пользователя.
      * @return Список [AnalysisJob] отсортированный по времени создания (по убыванию).
      */
+    @OptIn(DelicateCoroutinesApi::class)
     suspend fun list(userIdFilter: String? = null): List<AnalysisJob> = dbJob {
         val base = Jobs.selectAll()
         val filtered = if (userIdFilter != null) base.where { Jobs.userId eq userIdFilter } else base
-        filtered.orderBy(Jobs.createdAt, SortOrder.DESC).map { row ->
+        val jobs = filtered.orderBy(Jobs.createdAt, SortOrder.DESC).map { row ->
             AnalysisJob(
                 jobId = row[Jobs.jobId],
                 submitterUserId = row[Jobs.userId],
@@ -129,5 +136,39 @@ object JobRepository {
                 data = row[Jobs.data]
             )
         }
+
+        // Находим failed задачи для последующего удаления
+        val failedJobIds = jobs.filter { it.status == JobStatus.FAILED }.map { it.jobId }
+
+        // Возвращаем список (failed задачи будут удалены асинхронно после возврата)
+        if (failedJobIds.isNotEmpty()) {
+            // Запускаем удаление failed задач в отдельной корутине
+            GlobalScope.launch {
+                try {
+                    dbJob {
+                        Jobs.deleteWhere { Jobs.jobId inList failedJobIds }
+                    }
+                } catch (e: Exception) {
+                    // Логируем ошибку, но не прерываем основной поток
+                    println("Ошибка при удалении failed задач: ${e.message}")
+                }
+            }
+        }
+
+        jobs
     }
+
+    /**
+     * Удаляет задачи старше указанного количества часов.
+     * @param olderThanHours количество часов (по умолчанию 24 часа)
+     * @return количество удаленных записей
+     */
+    suspend fun deleteOldJobs(olderThanHours: Long = 24): Int = dbJob {
+        val cutoffTime = Instant.now().minusSeconds(olderThanHours * 3600)
+        val cutoffTimeString = cutoffTime.toString()
+
+        Jobs.deleteWhere { Jobs.createdAt lessEq cutoffTimeString }
+    }
+
+
 }
