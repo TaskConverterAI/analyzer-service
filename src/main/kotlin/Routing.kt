@@ -19,9 +19,9 @@ fun Application.configureRouting() {
         get("/") { call.respondText("OK") }
         post("/audio") {
             val logger = LoggerFactory.getLogger("audio-upload")
-            val userId = call.request.queryParameters["userID"] ?: return@post call.respond(
+            val userId = call.request.queryParameters["userId"] ?: return@post call.respond(
                 HttpStatusCode.BadRequest,
-                "userID missing"
+                "userId missing"
             )
             val ct = call.request.contentType()
             if (!ct.match(ContentType.MultiPart.FormData)) {
@@ -166,7 +166,10 @@ fun Application.configureRouting() {
         }
 
         post("/task") {
-            val userId = call.request.queryParameters["userID"] ?: return@post call.respond(HttpStatusCode.BadRequest,"userID missing")
+            val userId = call.request.queryParameters["userId"] ?: return@post call.respond(
+                HttpStatusCode.BadRequest,
+                "userId missing"
+            )
 
             val taskRequest = try {
                 call.receive<TaskRequest>()
@@ -188,7 +191,7 @@ fun Application.configureRouting() {
             call.respond(mapOf("jobId" to job.jobId))
         }
         get("/jobs") {
-            val userId = call.request.queryParameters["userID"]
+            val userId = call.request.queryParameters["userId"]
             val jobs = JobRepository.list(userId)
             call.respond(jobs)
         }
@@ -200,7 +203,6 @@ fun Application.configureRouting() {
         get("/jobs/{jobId}/result") {
             val jobId = call.parameters["jobId"] ?: return@get call.respond(HttpStatusCode.BadRequest, "jobId missing")
             val job = JobRepository.get(jobId) ?: return@get call.respond(HttpStatusCode.NotFound, "Not found")
-            if (job.status != JobStatus.SUCCEEDED) return@get call.respond(HttpStatusCode.Conflict, "Job not finished")
             when (job.type) {
                 JobType.AUDIO -> {
                     val utt = loadTranscriptionUtterances(jobId) ?: return@get call.respond(
@@ -217,6 +219,7 @@ fun Application.configureRouting() {
                     call.respond(analysis)
                 }
             }
+            deleteTranscription(jobId) // удаляем после отдачи результата
         }
     }
 }

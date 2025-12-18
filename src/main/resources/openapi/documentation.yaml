@@ -2,7 +2,7 @@ openapi: "3.0.3"
 info:
   title: "Analyzer Service API"
   description: "Сервис асинхронного анализа аудио и текстовых задач. /audio выполняет только транскрибацию и возвращает реплики спикеров (одноразовая выдача — результат удаляется после получения). /task выполняет семантический анализ и формирует саммари и задачи (JSON)."
-  version: "1.0.2"
+  version: "1.0.3"
 servers:
   - url: "http://0.0.0.0:8080"
 paths:
@@ -22,7 +22,7 @@ paths:
       description: "Принимает бинарный аудио файл до 500MB. Выполняет ТОЛЬКО транскрибацию (без саммари). Результат (список реплик) можно получить через /jobs/{jobId}/result ОДИН раз — после выдачи данные удаляются."
       parameters:
         - in: query
-          name: userID
+          name: userId
           required: true
           schema: { type: string }
           description: "Идентификатор пользователя"
@@ -54,7 +54,7 @@ paths:
         - lang: Bash
           label: curl
           source: |
-            curl -X POST "http://localhost:8080/audio?userID=user123" \
+            curl -X POST "http://localhost:8080/audio?userId=user123" \
                  -H "Content-Type: multipart/form-data" \
                  -F "file=@sample.mp3" \
                  -v
@@ -65,7 +65,7 @@ paths:
             with open("sample.mp3", "rb") as f:
                 r = requests.post(
                     "http://localhost:8080/audio",
-                    params={"userID": "user123"},
+                    params={"userId": "user123"},
                     files={"file": ("sample.mp3", f, "audio/mp3")}
                 )
                 print(r.json())
@@ -75,7 +75,7 @@ paths:
       description: "Принимает JSON с описанием задачи и дополнительными полями (геолокация, имя, группа, данные). Выполняет анализ и формирует TaskAnalysisResult (саммари + задачи + мета-информация)."
       parameters:
         - in: query
-          name: userID
+          name: userId
           required: true
           schema: { type: string }
           description: "Идентификатор пользователя"
@@ -109,10 +109,10 @@ paths:
   /jobs:
     get:
       summary: "Список задач"
-      description: "Возвращает список задач (jobs). Можно фильтровать по userID."
+      description: "Возвращает список задач (jobs). Можно фильтровать по userId. Failed задачи удаляются после первого запроса списка (одноразовый показ)."
       parameters:
         - in: query
-          name: userID
+          name: userId
           required: false
           schema: { type: string }
           description: "Если указан — возвращаются только задачи этого пользователя"
